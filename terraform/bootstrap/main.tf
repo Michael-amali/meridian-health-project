@@ -21,12 +21,10 @@ provider "aws" {
   region = var.aws_region
 }
 
-data "aws_caller_identity" "current" {}
-
-# Bucket names must be globally unique across all of AWS, so we suffix with the
-# account ID rather than inventing a random name.
+# Bucket names must be globally unique across all of AWS, so we suffix with a
+# fixed project owner tag rather than inventing a random name.
 locals {
-  state_bucket_name = "meridian-terraform-state-${data.aws_caller_identity.current.account_id}"
+  state_bucket_name = "meridian-terraform-state-myk"
 }
 
 resource "aws_s3_bucket" "terraform_state" {

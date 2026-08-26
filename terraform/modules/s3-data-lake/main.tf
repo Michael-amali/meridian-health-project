@@ -7,18 +7,15 @@
 #   scripts             - Glue job code, Lambda packages, DQ rule definitions
 #   logs                - S3 server access logs for the four buckets above
 #
-# Bucket names must be globally unique across ALL of AWS, so every name is
-# suffixed with the AWS account ID.
-
-data "aws_caller_identity" "current" {}
-
+# Bucket names must be globally unique across ALL of AWS, so every name carries
+# a fixed project owner tag ("myk") as a uniqueness suffix.
 locals {
   bucket_names = {
-    raw      = "meridian-raw-${var.env}-${data.aws_caller_identity.current.account_id}"
-    cleansed = "meridian-cleansed-${var.env}-${data.aws_caller_identity.current.account_id}"
-    curated  = "meridian-curated-${var.env}-${data.aws_caller_identity.current.account_id}"
-    scripts  = "meridian-scripts-${var.env}-${data.aws_caller_identity.current.account_id}"
-    logs     = "meridian-logs-${var.env}-${data.aws_caller_identity.current.account_id}"
+    raw      = "meridian-raw-${var.env}-myk"
+    cleansed = "meridian-cleansed-${var.env}-myk"
+    curated  = "meridian-curated-${var.env}-myk"
+    scripts  = "meridian-scripts-${var.env}-myk"
+    logs     = "meridian-logs-${var.env}-myk"
   }
 
   # The logs bucket receives access logs FROM the other four buckets, so it's

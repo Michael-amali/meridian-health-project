@@ -1,0 +1,42 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars.local
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+# Note: .terraform.lock.hcl is intentionally NOT ignored - it should be committed
+# so everyone applies the same provider versions.
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Packaged Lambda/Glue build artifacts
+*.zip
+build/
+dist/
+
+# Local synthetic data output (not committed, only generated for local testing)
+data/local/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Secrets - never commit
+*.pem
+*.key
+.env
+.env.*

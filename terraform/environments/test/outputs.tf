@@ -17,3 +17,33 @@ output "lambda_generator_role_arn" {
   description = "ARN of the Lambda generator role."
   value       = module.iam_baseline.lambda_generator_role_arn
 }
+
+output "lambda_alerting_role_arn" {
+  description = "ARN of the Lambda alerting role."
+  value       = module.iam_baseline.lambda_alerting_role_arn
+}
+
+output "stream_names" {
+  description = "Map of stream key (vitals/prescriptions) to Kinesis stream name."
+  value       = module.kinesis_streaming.stream_names
+}
+
+output "active_alerts_table_name" {
+  description = "Name of the active-alerts DynamoDB table."
+  value       = module.dynamodb_alerts.table_name
+}
+
+output "batch_generator_function_names" {
+  description = "Map of source name to Lambda function name - useful for manual `aws lambda invoke` testing."
+  value       = module.batch_generators.function_names
+}
+
+output "streaming_producer_function_name" {
+  description = "Name of the streaming producer Lambda."
+  value       = module.streaming_producer.function_name
+}
+
+output "stream_alerting_function_name" {
+  description = "Name of the vitals stream alerting Lambda."
+  value       = module.streaming_alerts.function_name
+}

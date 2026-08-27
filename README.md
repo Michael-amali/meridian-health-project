@@ -14,6 +14,16 @@ repo; see `docs/` for living documentation as each phase lands.
 buckets (raw/cleansed/curated/scripts/logs), and baseline IAM service roles are live in
 the `dev` environment.
 
+**Phase 2 (Synthetic Data Generators & Raw Ingestion) — complete.** Five daily batch
+generators (visits, staff schedules, billing claims, pharmacy inventory, bed capacity)
+write CSV to `raw/<source>/dt=.../`. A 1-minute streaming producer pushes synthetic
+vitals + prescription-issuance events onto two on-demand Kinesis streams, delivered to
+`raw/vitals/` and `raw/prescriptions/` as JSON via Firehose. A Kinesis-triggered alerting
+Lambda flags dangerous vitals readings into a `meridian-active-alerts-dev` DynamoDB
+table (24h TTL). All verified end-to-end in `dev`: manual invokes landed real objects in
+S3, and the streaming path produced real active alerts. Live in `dev` only - `test`/
+`prod` have the same Terraform but are not yet applied (Phase 8).
+
 ## Repo layout
 
 ```

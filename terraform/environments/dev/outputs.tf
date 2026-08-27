@@ -47,3 +47,38 @@ output "stream_alerting_function_name" {
   description = "Name of the vitals stream alerting Lambda."
   value       = module.streaming_alerts.function_name
 }
+
+output "raw_database_name" {
+  description = "Glue Catalog database holding the raw tables."
+  value       = module.bronze_to_silver.raw_database_name
+}
+
+output "cleansed_database_name" {
+  description = "Glue Catalog database holding the cleansed tables (and dq_results)."
+  value       = module.bronze_to_silver.cleansed_database_name
+}
+
+output "cleansing_job_names" {
+  description = "Map of source name to its cleansing Glue job name - useful for manual `aws glue start-job-run` testing."
+  value       = module.bronze_to_silver.cleansing_job_names
+}
+
+output "raw_crawler_name" {
+  description = "Name of the raw-layer crawler."
+  value       = module.bronze_to_silver.raw_crawler_name
+}
+
+output "cleansed_crawler_name" {
+  description = "Name of the cleansed-layer crawler."
+  value       = module.bronze_to_silver.cleansed_crawler_name
+}
+
+output "quarantine_crawler_name" {
+  description = "Name of the quarantine crawler (tables come out named quarantine_<source>)."
+  value       = module.bronze_to_silver.quarantine_crawler_name
+}
+
+output "athena_workgroup_name" {
+  description = "Name of the Athena workgroup to run verification queries in."
+  value       = module.bronze_to_silver.athena_workgroup_name
+}

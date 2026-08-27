@@ -69,3 +69,19 @@ module "streaming_alerts" {
   alerts_table_name = module.dynamodb_alerts.table_name
   lambda_role_arn   = module.iam_baseline.lambda_alerting_role_arn
 }
+
+# Phase 3: bronze -> silver. Crawls raw into the Glue Catalog, cleanses each
+# source into partitioned Parquet, and gates that promotion on a Glue Data
+# Quality ruleset per source.
+
+module "bronze_to_silver" {
+  source = "../../modules/bronze-to-silver"
+
+  env                  = var.env
+  raw_bucket_name      = module.s3_data_lake.bucket_names["raw"]
+  cleansed_bucket_name = module.s3_data_lake.bucket_names["cleansed"]
+  scripts_bucket_name  = module.s3_data_lake.bucket_names["scripts"]
+  logs_bucket_name     = module.s3_data_lake.bucket_names["logs"]
+  kms_key_arn          = module.kms.key_arn
+  glue_role_arn        = module.iam_baseline.glue_service_role_arn
+}

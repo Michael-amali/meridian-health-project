@@ -102,3 +102,23 @@ output "demo_role_arns" {
   description = "Map of demo persona (analyst/executive) to its IAM role ARN - `aws sts assume-role` into one of these to verify PII column masking."
   value       = module.lake_formation_grants.demo_role_arns
 }
+
+output "pipeline_alerts_topic_arn" {
+  description = "ARN of the SNS topic pipeline success/failure notifications publish to."
+  value       = module.sns_alerts.topic_arn
+}
+
+output "batch_daily_state_machine_arn" {
+  description = "ARN of the batch-daily Step Functions pipeline - useful for manual `aws stepfunctions start-execution` testing."
+  value       = module.batch_daily_pipeline.state_machine_arn
+}
+
+output "streaming_curation_state_machine_arn" {
+  description = "ARN of the streaming-curation Step Functions pipeline - useful for manual `aws stepfunctions start-execution` testing."
+  value       = module.streaming_curation_pipeline.state_machine_arn
+}
+
+output "pipeline_dashboard_name" {
+  description = "Name of the Phase 5 CloudWatch dashboard."
+  value       = module.monitoring.dashboard_name
+}

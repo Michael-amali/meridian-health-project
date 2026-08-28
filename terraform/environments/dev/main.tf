@@ -129,3 +129,89 @@ module "lake_formation_grants" {
   logs_bucket_arn       = module.s3_data_lake.bucket_arns["logs"]
   kms_key_arn           = module.kms.key_arn
 }
+
+# Phase 5: orchestration. Two Step Functions pipelines tie phases 2-4
+# together on a schedule instead of everything being run by hand:
+#   - batch_daily_pipeline: the 5 daily CSV sources (visits, staff_schedules,
+#     billing_claims, pharmacy_inventory, bed_capacity) -> their 7 dependent
+#     curated tables, then a catalog refresh so that day's new partitions
+#     are queryable in Athena.
+#   - streaming_curation_pipeline: the 2 Firehose-delivered sources (vitals,
+#     prescriptions) -> fact_vitals_alert, on a much shorter interval. No
+#     catalog refresh here - see modules/step-functions-pipeline's comment on
+#     crawler_states for why that's safe to skip, and skipping it keeps a
+#     crawler from running (and costing money) every 30 minutes all day.
+#
+# dim_patient/dim_staff (reference data) and dim_date/dim_facility/
+# dim_department (static lookups) are deliberately NOT scheduled - none of
+# their sources change day to day, so Phase 4's one-time manual run is still
+# good; see terraform/modules/silver-to-gold's header comment.
+
+module "sns_alerts" {
+  source = "../../modules/sns-alerts"
+
+  env         = var.env
+  kms_key_arn = module.kms.key_arn
+  alert_email = var.alert_email
+}
+
+module "batch_daily_pipeline" {
+  source = "../../modules/step-functions-pipeline"
+
+  env  = var.env
+  name = "batch-daily"
+
+  cleanse_job_names = [
+    for source in ["visits", "staff_schedules", "billing_claims", "pharmacy_inventory", "bed_capacity"] :
+    module.bronze_to_silver.cleansing_job_names[source]
+  ]
+  curate_job_names = [
+    for table in ["fact_patient_visit", "fact_bed_occupancy", "fact_staffing", "fact_claim", "fact_pharmacy_inventory", "dim_payer", "dim_drug"] :
+    module.silver_to_gold.curated_job_names[table]
+  ]
+  crawler_names = [
+    module.bronze_to_silver.cleansed_crawler_name,
+    module.bronze_to_silver.quarantine_crawler_name,
+  ]
+
+  sns_topic_arn = module.sns_alerts.topic_arn
+  kms_key_arn   = module.kms.key_arn
+  # 08:00 UTC - comfortably after the batch generators finish (06:00-06:20
+  # UTC, see modules/batch-generators). Each cleansing job defaults to
+  # processing *yesterday's* partition (see resolved_args() in
+  # src/glue_jobs/bronze_to_silver/common.py), so this always has a full,
+  # fully-landed day of data to work with regardless of exactly when it runs.
+  schedule_expression = "cron(0 8 * * ? *)"
+}
+
+module "streaming_curation_pipeline" {
+  source = "../../modules/step-functions-pipeline"
+
+  env  = var.env
+  name = "streaming-curation"
+
+  cleanse_job_names = [
+    module.bronze_to_silver.cleansing_job_names["vitals"],
+    module.bronze_to_silver.cleansing_job_names["prescriptions"],
+  ]
+  curate_job_names = [
+    module.silver_to_gold.curated_job_names["fact_vitals_alert"],
+  ]
+
+  sns_topic_arn       = module.sns_alerts.topic_arn
+  kms_key_arn         = module.kms.key_arn
+  schedule_expression = "rate(30 minutes)"
+}
+
+module "monitoring" {
+  source = "../../modules/monitoring"
+
+  env           = var.env
+  sns_topic_arn = module.sns_alerts.topic_arn
+
+  state_machine_arns = {
+    batch-daily        = module.batch_daily_pipeline.state_machine_arn
+    streaming-curation = module.streaming_curation_pipeline.state_machine_arn
+  }
+  kinesis_stream_names = module.kinesis_streaming.stream_names
+}

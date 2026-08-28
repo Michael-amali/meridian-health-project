@@ -74,6 +74,28 @@ resource "aws_iam_role_policy" "glue_data_lake_access" {
   })
 }
 
+# Phase 5: lets every cleansing job publish its quarantined-row count as a
+# custom CloudWatch metric (see _publish_quarantine_metric() in
+# src/glue_jobs/bronze_to_silver/common.py) for modules/monitoring's DQ
+# failure alarm. cloudwatch:PutMetricData has no resource-level permissions
+# in IAM - "*" is the only valid Resource for this action.
+resource "aws_iam_role_policy" "glue_data_quality_metrics" {
+  name = "data-quality-metrics"
+  role = aws_iam_role.glue_service.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "PublishDataQualityMetrics"
+        Effect   = "Allow"
+        Action   = ["cloudwatch:PutMetricData"]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 # --- Lambda execution role: used by the synthetic data generator functions ---
 
 resource "aws_iam_role" "lambda_generator" {

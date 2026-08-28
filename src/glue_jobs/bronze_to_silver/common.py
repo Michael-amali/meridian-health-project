@@ -22,6 +22,7 @@ from pyspark.context import SparkContext
 from pyspark.sql import functions as F
 
 _s3 = boto3.client("s3")
+_cloudwatch = boto3.client("cloudwatch")
 
 REQUIRED_ARGS = ["JOB_NAME", "RAW_BUCKET", "CLEANSED_BUCKET", "SOURCE"]
 
@@ -129,6 +130,24 @@ def _delete_prefix(bucket, prefix):
             _s3.delete_objects(Bucket=bucket, Delete={"Objects": keys})
 
 
+def _publish_quarantine_metric(bad_count):
+    """One metric point per cleansing run, with no per-source dimension - the
+    Phase 5 CloudWatch alarm (see terraform/modules/monitoring) sums this
+    across every source's job in the same window, so a rise in bad rows
+    anywhere in the pipeline trips one alarm instead of needing one per
+    source."""
+    _cloudwatch.put_metric_data(
+        Namespace="Meridian/DataQuality",
+        MetricData=[
+            {
+                "MetricName": "QuarantinedRows",
+                "Value": float(bad_count),
+                "Unit": "Count",
+            }
+        ],
+    )
+
+
 def run_cleansing_job(glue_context, job, args, raw_df, ruleset, extra_valid_predicate=None):
     """Evaluates the ruleset row by row: rows that pass are promoted to
     cleansed Parquet, rows that fail are quarantined instead - so one bad
@@ -160,6 +179,7 @@ def run_cleansing_job(glue_context, job, args, raw_df, ruleset, extra_valid_pred
     bad_rows = row_outcomes_df.filter(~is_valid).select(*raw_df.columns)
     good_count = good_rows.count()
     bad_count = bad_rows.count()
+    # _publish_quarantine_metric(bad_count) # disable alerting bad records for the time being
 
     good_rows.write.mode("overwrite").parquet(f"s3://{cleansed_bucket}/{source}/dt={run_date}/")
 

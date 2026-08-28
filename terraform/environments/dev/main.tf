@@ -155,6 +155,26 @@ module "sns_alerts" {
   alert_email = var.alert_email
 }
 
+# Phase 6: warehouse. Redshift Serverless namespace/workgroup, the 13-table
+# star schema (dist/sort keys tuned per table), an initial load from the
+# curated bucket, and facility-scoped row-level security - see
+# modules/redshift-warehouse's header comments for the design reasoning.
+# Declared here (ahead of the pipelines below) because both pipelines
+# reference its outputs to wire their own ongoing Redshift-load stage.
+# Depends on silver_to_gold directly (not just the curated bucket) because
+# the initial COPY load needs actual curated Parquet to already exist.
+
+module "redshift_warehouse" {
+  source = "../../modules/redshift-warehouse"
+
+  env                 = var.env
+  curated_bucket_name = module.s3_data_lake.bucket_names["curated"]
+  curated_bucket_arn  = module.s3_data_lake.bucket_arns["curated"]
+  kms_key_arn         = module.kms.key_arn
+
+  depends_on = [module.silver_to_gold]
+}
+
 module "batch_daily_pipeline" {
   source = "../../modules/step-functions-pipeline"
 
@@ -182,6 +202,21 @@ module "batch_daily_pipeline" {
   # src/glue_jobs/bronze_to_silver/common.py), so this always has a full,
   # fully-landed day of data to work with regardless of exactly when it runs.
   schedule_expression = "cron(0 8 * * ? *)"
+
+  # Phase 6: keep these 7 curated tables fresh in Redshift right after
+  # they're curated, instead of only loading them once at `terraform apply`
+  # time (see modules/redshift-warehouse's initial_load resource for that
+  # one-time load).
+  redshift_tables_to_load = [
+    "fact_patient_visit", "fact_bed_occupancy", "fact_staffing",
+    "fact_claim", "fact_pharmacy_inventory", "dim_payer", "dim_drug",
+  ]
+  redshift_workgroup_name   = module.redshift_warehouse.workgroup_name
+  redshift_workgroup_arn    = module.redshift_warehouse.workgroup_arn
+  redshift_database_name    = module.redshift_warehouse.database_name
+  redshift_admin_secret_arn = module.redshift_warehouse.admin_secret_arn
+  curated_bucket_name       = module.s3_data_lake.bucket_names["curated"]
+  redshift_service_role_arn = module.redshift_warehouse.redshift_service_role_arn
 }
 
 module "streaming_curation_pipeline" {
@@ -201,6 +236,16 @@ module "streaming_curation_pipeline" {
   sns_topic_arn       = module.sns_alerts.topic_arn
   kms_key_arn         = module.kms.key_arn
   schedule_expression = "rate(30 minutes)"
+
+  # Phase 6: this pipeline only curates fact_vitals_alert, so it only loads
+  # that one table.
+  redshift_tables_to_load   = ["fact_vitals_alert"]
+  redshift_workgroup_name   = module.redshift_warehouse.workgroup_name
+  redshift_workgroup_arn    = module.redshift_warehouse.workgroup_arn
+  redshift_database_name    = module.redshift_warehouse.database_name
+  redshift_admin_secret_arn = module.redshift_warehouse.admin_secret_arn
+  curated_bucket_name       = module.s3_data_lake.bucket_names["curated"]
+  redshift_service_role_arn = module.redshift_warehouse.redshift_service_role_arn
 }
 
 module "monitoring" {

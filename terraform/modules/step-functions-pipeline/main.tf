@@ -117,6 +117,122 @@ locals {
     }
   }
 
+  # One branch per table to load - same "static Parallel, not a dynamic Map"
+  # reasoning as cleanse_branches/curate_branches above (the table list is
+  # fixed at apply time). TRUNCATE + COPY mirrors modules/redshift-warehouse's
+  # own initial_load statement - see that module's schema.tf for why this is
+  # a full-refresh overwrite, not an append.
+  #
+  # Unlike glue:startJobRun.sync/.sync used elsewhere in this module, the
+  # Redshift Data API has no native ".sync" integration in Step Functions
+  # (confirmed by testing: Step Functions rejects
+  # "aws-sdk:redshiftdata:batchExecuteStatement.sync" as an unrecognized
+  # resource - Redshift Data API just isn't one of the services Step
+  # Functions natively waits on). BatchExecuteStatement itself only submits
+  # the SQL and returns immediately, so each branch is its own
+  # submit -> wait -> poll -> branch loop instead of a single Task.
+  #
+  # Authenticates via the Redshift admin secret (SecretArn), not this role's
+  # own IAM identity - confirmed by testing that the "temporary credentials"
+  # mode (WorkgroupName/Database with no SecretArn) requires the caller to
+  # separately hold redshift-serverless:GetCredentials, and even then only
+  # authenticates as an implicit IAM-mapped database user with no privileges
+  # of its own on any table. Using the same admin secret every other
+  # Terraform-managed statement in modules/redshift-warehouse already uses
+  # avoids standing up and granting a whole separate native Redshift
+  # identity just for this pipeline.
+  redshift_branches = [
+    for table in var.redshift_tables_to_load : {
+      StartAt = "Load${table}Submit"
+      States = {
+        "Load${table}Submit" = {
+          Type     = "Task"
+          Resource = "arn:aws:states:::aws-sdk:redshiftdata:batchExecuteStatement"
+          Parameters = {
+            WorkgroupName = var.redshift_workgroup_name
+            Database      = var.redshift_database_name
+            SecretArn     = var.redshift_admin_secret_arn
+            Sqls = [
+              "TRUNCATE TABLE ${table}",
+              "COPY ${table} FROM 's3://${var.curated_bucket_name}/${table}/' IAM_ROLE '${var.redshift_service_role_arn}' FORMAT AS PARQUET",
+            ]
+          }
+          ResultPath = "$.submitted"
+          Retry = [{
+            ErrorEquals     = ["States.ALL"]
+            IntervalSeconds = 30
+            MaxAttempts     = 2
+            BackoffRate     = 2.0
+          }]
+          Next = "Load${table}Wait"
+        }
+        "Load${table}Wait" = {
+          Type    = "Wait"
+          Seconds = 10
+          Next    = "Load${table}Describe"
+        }
+        "Load${table}Describe" = {
+          Type       = "Task"
+          Resource   = "arn:aws:states:::aws-sdk:redshiftdata:describeStatement"
+          Parameters = { "Id.$" = "$.submitted.Id" }
+          ResultPath = "$.status"
+          Next       = "Load${table}Choice"
+        }
+        "Load${table}Choice" = {
+          Type = "Choice"
+          Choices = [
+            {
+              Variable     = "$.status.Status"
+              StringEquals = "FINISHED"
+              Next         = "Load${table}Done"
+            },
+            {
+              Or = [
+                { Variable = "$.status.Status", StringEquals = "FAILED" },
+                { Variable = "$.status.Status", StringEquals = "ABORTED" },
+              ]
+              Next = "Load${table}Failed"
+            }
+          ]
+          # Anything else (SUBMITTED/PICKED/STARTED) means still running -
+          # go back and wait some more.
+          Default = "Load${table}Wait"
+        }
+        "Load${table}Done" = {
+          Type = "Pass"
+          End  = true
+        }
+        # A Fail state ends this branch abnormally, which the enclosing
+        # Parallel's Catch (see redshift_states below) picks up the same way
+        # it would a thrown error from a Task.
+        "Load${table}Failed" = {
+          Type  = "Fail"
+          Error = "RedshiftLoadFailed"
+          Cause = "Load of ${table} into Redshift failed or was aborted."
+        }
+      }
+    }
+  ]
+
+  after_curate_next = length(var.redshift_tables_to_load) > 0 ? "LoadRedshift" : "NotifySuccess"
+
+  # Same "for over an at-most-one-element list" trick as crawler_states above
+  # - keeps this key fully absent (not a null state) when there's nothing to
+  # load.
+  redshift_states = {
+    for _ in(length(var.redshift_tables_to_load) > 0 ? [true] : []) : "LoadRedshift" => {
+      Type     = "Parallel"
+      Branches = local.redshift_branches
+      Catch = [{
+        ErrorEquals = ["States.ALL"]
+        ResultPath  = "$.error"
+        Next        = "NotifyFailure"
+      }]
+      ResultPath = null
+      Next       = "NotifySuccess"
+    }
+  }
+
   base_states = {
     CleanseSources = {
       Type     = "Parallel"
@@ -138,7 +254,7 @@ locals {
         Next        = "NotifyFailure"
       }]
       ResultPath = null
-      Next       = "NotifySuccess"
+      Next       = local.after_curate_next
     }
     NotifySuccess = {
       Type     = "Task"
@@ -165,9 +281,9 @@ locals {
   }
 
   state_machine_definition = jsonencode({
-    Comment = "Meridian ${var.name} pipeline: cleanse -> ${length(var.crawler_names) > 0 ? "refresh catalog -> " : ""}curate -> notify."
+    Comment = "Meridian ${var.name} pipeline: cleanse -> ${length(var.crawler_names) > 0 ? "refresh catalog -> " : ""}curate -> ${length(var.redshift_tables_to_load) > 0 ? "load redshift -> " : ""}notify."
     StartAt = "CleanseSources"
-    States  = merge(local.base_states, local.crawler_states)
+    States  = merge(local.base_states, local.crawler_states, local.redshift_states)
   })
 }
 
@@ -235,7 +351,33 @@ resource "aws_iam_role_policy" "sfn_execution" {
         Effect   = "Allow"
         Action   = ["glue:StartCrawler"]
         Resource = local.crawler_arns
-      }] : []
+      }] : [],
+      length(var.redshift_tables_to_load) > 0 ? [
+        {
+          Sid      = "RunRedshiftLoadStatements"
+          Effect   = "Allow"
+          Action   = ["redshift-data:BatchExecuteStatement"]
+          Resource = var.redshift_workgroup_arn
+        },
+        {
+          # DescribeStatement/GetStatementResult operate on a statement ID,
+          # not a workgroup ARN - "*" is the only valid Resource shape for
+          # these, same as cloudwatch:PutMetricData in modules/iam-baseline.
+          Sid      = "PollRedshiftLoadStatements"
+          Effect   = "Allow"
+          Action   = ["redshift-data:DescribeStatement", "redshift-data:GetStatementResult"]
+          Resource = "*"
+        },
+        {
+          # BatchExecuteStatement authenticates via this secret (SecretArn
+          # in Parameters above), not this role's own IAM identity - see the
+          # redshift_branches local's header comment for why.
+          Sid      = "ReadRedshiftAdminSecret"
+          Effect   = "Allow"
+          Action   = ["secretsmanager:GetSecretValue"]
+          Resource = var.redshift_admin_secret_arn
+        }
+      ] : []
     )
   })
 }

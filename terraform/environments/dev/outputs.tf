@@ -122,3 +122,28 @@ output "pipeline_dashboard_name" {
   description = "Name of the Phase 5 CloudWatch dashboard."
   value       = module.monitoring.dashboard_name
 }
+
+output "redshift_workgroup_name" {
+  description = "Redshift Serverless workgroup name - useful for manual `aws redshift-data execute-statement` testing."
+  value       = module.redshift_warehouse.workgroup_name
+}
+
+output "redshift_database_name" {
+  description = "Redshift database name."
+  value       = module.redshift_warehouse.database_name
+}
+
+output "redshift_admin_secret_arn" {
+  description = "Secrets Manager ARN holding the Redshift admin credentials - pass as --secret-arn for manual verification queries via the Data API."
+  value       = module.redshift_warehouse.admin_secret_arn
+}
+
+output "facility_manager_demo_role_arns" {
+  description = "Map of facility (FAC01/FAC02/FAC03) to its demo facility-manager IAM role ARN - `aws sts assume-role` into one, then read its secret (facility_manager_demo_secret_arns) to verify RLS restricts rows to that facility."
+  value       = module.redshift_warehouse.facility_manager_demo_role_arns
+}
+
+output "facility_manager_demo_secret_arns" {
+  description = "Map of facility (FAC01/FAC02/FAC03) to the Secrets Manager ARN holding its demo db_user's password - only the matching facility_manager_demo_role_arns role can read it."
+  value       = module.redshift_warehouse.demo_facility_user_secret_arns
+}

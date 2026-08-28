@@ -111,9 +111,9 @@ flowchart LR
 ```mermaid
 flowchart TD
     P1["1. Foundations\nTerraform backend, S3 buckets, KMS, IAM\n**DONE**"]
-    P2["2. Ingestion\nBatch generators + Kinesis streaming + alerting\n**IN PROGRESS**"]
-    P3["3. Bronze -> Silver\nCrawlers, cleansing jobs, Data Quality gate"]
-    P4["4. Silver -> Gold\nDimensional model, Lake Formation governance"]
+    P2["2. Ingestion\nBatch generators + Kinesis streaming + alerting\n**DONE**"]
+    P3["3. Bronze -> Silver\nCrawlers, cleansing jobs, Data Quality gate\n**DONE**"]
+    P4["4. Silver -> Gold\nDimensional model, Lake Formation governance\n**DONE**"]
     P5["5. Orchestration\nStep Functions, EventBridge, CloudWatch/SNS"]
     P6["6. Warehouse\nRedshift Serverless, star schema, RLS"]
     P7["7. BI Dashboards\nQuickSight Executive + Operational/Clinical"]

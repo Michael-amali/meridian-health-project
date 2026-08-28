@@ -85,3 +85,47 @@ module "bronze_to_silver" {
   kms_key_arn          = module.kms.key_arn
   glue_role_arn        = module.iam_baseline.glue_service_role_arn
 }
+
+# Phase 4: silver -> gold + Lake Formation governance. Split into 3 modules
+# because of a real ordering constraint (see lake-formation-bootstrap's
+# header comment for the full explanation):
+#   1. lake_formation_bootstrap - account settings + curated location
+#      registration. No dependency on silver_to_gold, applied first.
+#   2. silver_to_gold - the curated database/tables/jobs. Must come AFTER
+#      bootstrap's account settings land, or the curated database would be
+#      created with the legacy default permission grant already attached.
+#   3. lake_formation_grants - the actual SELECT/column-exclusion grants.
+#      Needs the curated database/tables to exist first, so it comes last.
+
+module "lake_formation_bootstrap" {
+  source = "../../modules/lake-formation-bootstrap"
+
+  env                = var.env
+  curated_bucket_arn = module.s3_data_lake.bucket_arns["curated"]
+  kms_key_arn        = module.kms.key_arn
+}
+
+module "silver_to_gold" {
+  source = "../../modules/silver-to-gold"
+
+  env                  = var.env
+  cleansed_bucket_name = module.s3_data_lake.bucket_names["cleansed"]
+  curated_bucket_name  = module.s3_data_lake.bucket_names["curated"]
+  scripts_bucket_name  = module.s3_data_lake.bucket_names["scripts"]
+  glue_role_arn        = module.iam_baseline.glue_service_role_arn
+
+  depends_on = [module.lake_formation_bootstrap]
+}
+
+module "lake_formation_grants" {
+  source = "../../modules/lake-formation-grants"
+
+  env                   = var.env
+  glue_service_role_arn = module.iam_baseline.glue_service_role_arn
+  curated_database_name = module.silver_to_gold.curated_database_name
+  curated_resource_arn  = module.lake_formation_bootstrap.curated_resource_arn
+  curated_table_names   = module.silver_to_gold.curated_table_names
+  pii_table_names       = module.silver_to_gold.pii_table_names
+  logs_bucket_arn       = module.s3_data_lake.bucket_arns["logs"]
+  kms_key_arn           = module.kms.key_arn
+}

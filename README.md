@@ -21,8 +21,30 @@ vitals + prescription-issuance events onto two on-demand Kinesis streams, delive
 `raw/vitals/` and `raw/prescriptions/` as JSON via Firehose. A Kinesis-triggered alerting
 Lambda flags dangerous vitals readings into a `meridian-active-alerts-dev` DynamoDB
 table (24h TTL). All verified end-to-end in `dev`: manual invokes landed real objects in
-S3, and the streaming path produced real active alerts. Live in `dev` only - `test`/
-`prod` have the same Terraform but are not yet applied (Phase 8).
+S3, and the streaming path produced real active alerts.
+
+**Phase 3 (Bronze → Silver) — complete.** Glue Crawlers + 7 per-source cleansing Glue
+jobs promote raw data to partitioned cleansed Parquet, gated by a Glue Data Quality
+ruleset per source: rows that fail any rule are quarantined instead of blocking the
+whole run. Rule-level outcomes land in a queryable `dq_results` table; row-level
+outcomes drive quarantine. All 7 sources verified against real AWS, including a
+deliberately bad record to confirm quarantine actually catches it.
+
+**Phase 4 (Silver → Gold + Lake Formation governance) — complete.** Two new static
+reference sources (`patients`, `staff` - fake PII seed data) flow through the same
+Phase 3 cleansing machinery. 13 curated Glue jobs build a star schema (7 dims + 6 facts)
+in `curated/`, full-refresh each run. Lake Formation governs the curated layer only:
+`dim_patient`/`dim_staff`'s PII columns (name, DOB, phone, government ID) are excluded
+from two demo IAM roles (`meridian-analyst-role-dev`, `meridian-executive-role-dev`) via
+column-level grants, verified end-to-end by actually assuming one of those roles and
+confirming the PII columns are absent from an Athena query while the rest of the row is
+visible. **Note:** this phase changed an account-wide Lake Formation setting
+(`create_database_default_permissions`/`create_table_default_permissions` set to empty)
+- any new Glue database created anywhere in this account from now on needs explicit
+Lake Formation grants; it no longer gets implicit IAM-passthrough access.
+
+All of the above is live in `dev` only - `test`/`prod` have the same Terraform but are
+not yet applied (Phase 8).
 
 ## Repo layout
 

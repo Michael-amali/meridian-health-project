@@ -1,7 +1,10 @@
-# Phase 3: bronze -> silver. Crawls the 7 raw sources into the Glue Catalog,
+# Phase 3: bronze -> silver. Crawls the raw sources into the Glue Catalog,
 # then cleanses each one into partitioned Parquet: rows that pass a
 # per-source Glue Data Quality ruleset are promoted, rows that don't are
-# quarantined instead (see src/glue_jobs/bronze_to_silver/).
+# quarantined instead (see src/glue_jobs/bronze_to_silver/). Also carries 2
+# Phase 4 reference sources (patients, staff) - they need the exact same
+# cleansing/quarantine machinery, just with a fixed partition instead of a
+# daily one.
 #
 # Orchestration (running these on a schedule, retries) is Phase 5 - this
 # module only builds the crawlers/jobs, run manually for now.
@@ -33,13 +36,35 @@ locals {
     bed_capacity = [
       "facility_id", "department", "total_beds", "occupied_beds", "snapshot_date",
     ]
+
+    # Reference master data (patients, staff) - not a daily drop like the 5
+    # sources above, so it gets one fixed partition (see local.reference_dt
+    # below) instead of a new dt= every day. Flows through the exact same
+    # cleansing/quarantine/DQ machinery as everything else in this module -
+    # Phase 4 needed real PII fields to demonstrate Lake Formation column
+    # masking on, and this was simpler than inventing separate mechanics for
+    # it (see src/generators/reference/generate_seed_files.py for how the
+    # seed CSVs themselves were produced).
+    patients = [
+      "patient_id", "full_name", "date_of_birth", "phone", "government_id",
+    ]
+    staff = [
+      "staff_id", "full_name", "date_of_birth", "phone", "government_id",
+    ]
   }
+
+  # The date partition the two reference sources' seed CSVs are uploaded
+  # under - deliberately the same date as raw_csv's projection.dt.range start
+  # below, so it's inside the projection window from day one without
+  # widening that range.
+  reference_dt      = "2025-01-01"
+  reference_sources = toset(["patients", "staff"])
 
   # The 2 Firehose-delivered streaming domains - crawled rather than defined
   # explicitly, since JSON keys are unambiguous (no header-row problem).
   json_sources = toset(["vitals", "prescriptions"])
 
-  # All 7 sources this phase promotes to cleansed.
+  # All 9 sources this phase promotes to cleansed (7 daily + 2 reference).
   sources = toset(concat(keys(local.csv_sources), tolist(local.json_sources)))
 }
 
@@ -67,6 +92,22 @@ resource "aws_s3_object" "common_module" {
   tags = var.tags
 }
 
+# --- Seed CSVs for the 2 reference sources - uploaded once to a fixed dt=
+# partition, since this is static master data rather than a daily drop ---
+
+resource "aws_s3_object" "reference_seed" {
+  for_each = local.reference_sources
+
+  bucket = var.raw_bucket_name
+  key    = "${each.key}/dt=${local.reference_dt}/${each.key}.csv"
+  source = "${path.module}/seed-data/${each.key}.csv"
+
+  # source_hash, not etag - see the same note on the common_module upload above.
+  source_hash = filemd5("${path.module}/seed-data/${each.key}.csv")
+
+  tags = var.tags
+}
+
 # --- One cleansing job per source ---
 
 module "cleansing_job" {
@@ -80,14 +121,21 @@ module "cleansing_job" {
   scripts_bucket    = var.scripts_bucket_name
   role_arn          = var.glue_role_arn
 
-  default_arguments = {
-    "--extra-py-files"    = "s3://${aws_s3_object.common_module.bucket}/${aws_s3_object.common_module.key}"
-    "--RAW_BUCKET"        = var.raw_bucket_name
-    "--CLEANSED_BUCKET"   = var.cleansed_bucket_name
-    "--RAW_DATABASE"      = aws_glue_catalog_database.this["raw"].name
-    "--CLEANSED_DATABASE" = aws_glue_catalog_database.this["cleansed"].name
-    "--SOURCE"            = each.key
-  }
+  default_arguments = merge(
+    {
+      "--extra-py-files"    = "s3://${aws_s3_object.common_module.bucket}/${aws_s3_object.common_module.key}"
+      "--RAW_BUCKET"        = var.raw_bucket_name
+      "--CLEANSED_BUCKET"   = var.cleansed_bucket_name
+      "--RAW_DATABASE"      = aws_glue_catalog_database.this["raw"].name
+      "--CLEANSED_DATABASE" = aws_glue_catalog_database.this["cleansed"].name
+      "--SOURCE"            = each.key
+    },
+    # The 2 reference sources live under one fixed dt= partition, not
+    # "yesterday" - common.py's resolved_args() defaults RUN_DATE to
+    # yesterday when it's not passed explicitly, which would look for a
+    # partition that doesn't exist for these two.
+    contains(local.reference_sources, each.key) ? { "--RUN_DATE" = local.reference_dt } : {}
+  )
 
   tags = var.tags
 }

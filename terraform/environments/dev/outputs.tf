@@ -82,3 +82,23 @@ output "athena_workgroup_name" {
   description = "Name of the Athena workgroup to run verification queries in."
   value       = module.bronze_to_silver.athena_workgroup_name
 }
+
+output "curated_database_name" {
+  description = "Glue Catalog database holding the curated fact/dim tables."
+  value       = module.silver_to_gold.curated_database_name
+}
+
+output "curated_job_names" {
+  description = "Map of table name to its curation Glue job name - useful for manual `aws glue start-job-run` testing."
+  value       = module.silver_to_gold.curated_job_names
+}
+
+output "curated_crawler_name" {
+  description = "Name of the curated-layer crawler."
+  value       = module.silver_to_gold.curated_crawler_name
+}
+
+output "demo_role_arns" {
+  description = "Map of demo persona (analyst/executive) to its IAM role ARN - `aws sts assume-role` into one of these to verify PII column masking."
+  value       = module.lake_formation_grants.demo_role_arns
+}

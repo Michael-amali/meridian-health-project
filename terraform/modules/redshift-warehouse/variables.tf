@@ -18,6 +18,12 @@ variable "kms_key_arn" {
   type        = string
 }
 
+variable "base_capacity" {
+  description = "Redshift Serverless base capacity in RPUs. 8 is the smallest value AWS accepts, and it is what every environment in this project uses - capstone-scale data never needs more. Exposed as a variable so an environment can be sized up deliberately rather than by editing the module."
+  type        = number
+  default     = 8
+}
+
 variable "tags" {
   description = "Tags to apply to created resources."
   type        = map(string)

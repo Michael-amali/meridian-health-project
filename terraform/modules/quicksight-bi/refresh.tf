@@ -16,10 +16,10 @@ locals {
 }
 
 resource "aws_quicksight_refresh_schedule" "daily" {
-  for_each = {
+  for_each = var.refresh_schedules_enabled ? {
     for key, config in local.dashboard_datasets : key => config
     if key != local.hourly_refresh_dataset
-  }
+  } : {}
 
   data_set_id = aws_quicksight_data_set.dashboard[each.key].data_set_id
   schedule_id = "daily-after-batch-pipeline"
@@ -35,7 +35,18 @@ resource "aws_quicksight_refresh_schedule" "daily" {
   }
 }
 
+# Phase 8 note: `count` (rather than a plain resource) is what lets an
+# environment switch this off, and it renames the address from `.hourly` to
+# `.hourly[0]`. The moved block below tells Terraform that is a rename, not a
+# destroy-and-recreate, so dev's existing schedule is left alone.
+moved {
+  from = aws_quicksight_refresh_schedule.hourly
+  to   = aws_quicksight_refresh_schedule.hourly[0]
+}
+
 resource "aws_quicksight_refresh_schedule" "hourly" {
+  count = var.refresh_schedules_enabled ? 1 : 0
+
   data_set_id = aws_quicksight_data_set.dashboard[local.hourly_refresh_dataset].data_set_id
   schedule_id = "hourly-streaming-alerts"
 

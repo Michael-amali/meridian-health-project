@@ -23,4 +23,5 @@ resource "aws_lambda_event_source_mapping" "vitals_stream" {
   function_name     = module.alerting.function_name
   starting_position = "LATEST"
   batch_size        = 10
+  enabled           = var.consumer_enabled
 }

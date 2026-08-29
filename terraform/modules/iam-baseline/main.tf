@@ -210,15 +210,34 @@ resource "aws_iam_role_policy" "lambda_alerting_access" {
     Version = "2012-10-17"
     Statement = [
       {
+        # DescribeStreamSummary is not strictly required - dev's event source
+        # mapping was created without it and polls fine - but AWS documents it
+        # as part of the permission set Lambda expects when CREATING a mapping,
+        # and the error Lambda returns when creation fails names it explicitly:
+        # "Cannot access stream ... ensure the role can perform GetRecords,
+        # GetShardIterator, DescribeStream, DescribeStreamSummary, ListShards,
+        # and ListStreams". Granted here so the create path matches what AWS
+        # asks for rather than relying on it being lenient.
         Sid    = "ReadVitalsStream"
         Effect = "Allow"
         Action = [
           "kinesis:DescribeStream",
+          "kinesis:DescribeStreamSummary",
           "kinesis:GetRecords",
           "kinesis:GetShardIterator",
           "kinesis:ListShards",
         ]
         Resource = var.vitals_stream_arn
+      },
+      {
+        # ListStreams is account-wide in IAM - Kinesis does not support
+        # resource-level permissions for it - so it cannot be scoped to the
+        # vitals stream the way everything above is. It only reveals stream
+        # names, and Lambda requires it to create the mapping.
+        Sid      = "ListStreamsForEventSourceMapping"
+        Effect   = "Allow"
+        Action   = ["kinesis:ListStreams"]
+        Resource = "*"
       },
       {
         # The vitals stream is KMS-encrypted, so the event source mapping's

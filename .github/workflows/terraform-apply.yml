@@ -1,0 +1,131 @@
+# Runs on merge to master. Applies the change to dev, then test, then prod, in
+# that order, stopping at the first failure.
+#
+# The promotion gate is the `environment:` line on each job, and it is enforced
+# in two places at once:
+#
+#   * GitHub will not start a job whose environment has required reviewers
+#     until someone approves it.
+#   * The AWS role that job assumes trusts ONLY that environment's OIDC subject
+#     claim (see terraform/github-oidc/main.tf). GitHub mints that claim, not
+#     the workflow, so editing this file cannot get a job into prod early - the
+#     role simply will not let it in.
+#
+# That is what "a merge never touches prod directly" means here: prod is
+# unreachable until dev and test have both applied cleanly AND a human approves.
+
+name: terraform apply
+
+on:
+  push:
+    branches: [master]
+  # Lets you re-run a promotion without an empty commit - handy when an apply
+  # failed on something outside Terraform (an expired approval, a throttle).
+  workflow_dispatch:
+
+# Never let two applies run against the same account at once. The S3+DynamoDB
+# state lock would already stop them corrupting state, but queueing here gives
+# a clear "waiting" in the UI instead of a lock-timeout failure.
+concurrency:
+  group: apply-master
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  dev:
+    name: apply dev
+    runs-on: ubuntu-latest
+    environment: dev # no required reviewers - dev applies automatically
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assume the dev apply role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/meridian-github-apply-dev
+          aws-region: us-east-1
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - name: terraform init
+        working-directory: terraform/environments/dev
+        run: terraform init -input=false
+
+      # plan -out then apply that exact file, rather than `apply -auto-approve`:
+      # apply then does what was planned, not whatever the world looks like a
+      # few seconds later.
+      - name: terraform plan
+        working-directory: terraform/environments/dev
+        run: terraform plan -input=false -no-color -out=tfplan.binary
+
+      - name: terraform apply
+        working-directory: terraform/environments/dev
+        run: terraform apply -input=false -no-color tfplan.binary
+
+  test:
+    name: apply test
+    runs-on: ubuntu-latest
+    needs: dev # test is only reachable once dev applied cleanly
+    environment: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assume the test apply role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/meridian-github-apply-test
+          aws-region: us-east-1
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - name: terraform init
+        working-directory: terraform/environments/test
+        run: terraform init -input=false
+
+      - name: terraform plan
+        working-directory: terraform/environments/test
+        run: terraform plan -input=false -no-color -out=tfplan.binary
+
+      - name: terraform apply
+        working-directory: terraform/environments/test
+        run: terraform apply -input=false -no-color tfplan.binary
+
+  prod:
+    name: apply prod
+    runs-on: ubuntu-latest
+    needs: test # prod is only reachable once test applied cleanly
+    environment: prod # required reviewers configured here - this is the gate
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assume the prod apply role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/meridian-github-apply-prod
+          aws-region: us-east-1
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - name: terraform init
+        working-directory: terraform/environments/prod
+        run: terraform init -input=false
+
+      - name: terraform plan
+        working-directory: terraform/environments/prod
+        run: terraform plan -input=false -no-color -out=tfplan.binary
+
+      - name: terraform apply
+        working-directory: terraform/environments/prod
+        run: terraform apply -input=false -no-color tfplan.binary

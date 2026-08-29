@@ -425,6 +425,7 @@ resource "aws_iam_role_policy" "eventbridge_invoke_sfn" {
 resource "aws_cloudwatch_event_rule" "schedule" {
   name                = "meridian-sfn-${var.name}-schedule-${var.env}"
   schedule_expression = var.schedule_expression
+  state               = var.schedule_enabled ? "ENABLED" : "DISABLED"
 
   tags = var.tags
 }

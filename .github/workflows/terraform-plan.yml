@@ -1,0 +1,123 @@
+# Runs on every pull request. Shows what the change would do to each of the
+# three environments, and can change nothing itself - the role it assumes is
+# read-only (see terraform/github-oidc/main.tf).
+#
+# All three environments are planned on every PR on purpose. The environments
+# share one set of .tf files, so a change written with only dev in mind shows
+# up here as an unexpected diff against test or prod before it is merged,
+# rather than after.
+
+name: terraform plan
+
+on:
+  pull_request:
+    branches: [master]
+
+# Cancel an in-flight run when the PR is pushed to again - the older plan is
+# already out of date.
+concurrency:
+  group: plan-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write # required to request the GitHub OIDC token
+  contents: read
+  pull-requests: write # to post the plan as a comment
+
+jobs:
+  format:
+    name: fmt + validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      # Fails the PR on unformatted HCL. Cheap to fix (`terraform fmt
+      # -recursive`) and it keeps diffs about substance.
+      - name: terraform fmt -check
+        run: terraform fmt -check -recursive terraform/
+
+  plan:
+    name: plan (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    needs: format
+    strategy:
+      # Don't stop planning prod just because test failed - seeing all three
+      # results at once is the point.
+      fail-fast: false
+      matrix:
+        env: [dev, test, prod]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assume the read-only plan role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/meridian-github-plan
+          aws-region: us-east-1
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - name: terraform init
+        working-directory: terraform/environments/${{ matrix.env }}
+        run: terraform init -input=false
+
+      - name: terraform validate
+        working-directory: terraform/environments/${{ matrix.env }}
+        run: terraform validate -no-color
+
+      # -lock=false because this role has no DynamoDB write access, and a plan
+      # changes nothing that would need protecting by a lock.
+      - name: terraform plan
+        id: plan
+        working-directory: terraform/environments/${{ matrix.env }}
+        run: |
+          terraform plan -input=false -lock=false -no-color -out=tfplan.binary
+          terraform show -no-color tfplan.binary > plan.txt
+          echo "summary=$(terraform show -no-color tfplan.binary | grep -E '^Plan:|^No changes' | head -1)" >> "$GITHUB_OUTPUT"
+
+      - name: Comment the plan on the PR
+        uses: actions/github-script@v7
+        env:
+          SUMMARY: ${{ steps.plan.outputs.summary }}
+        with:
+          script: |
+            const fs = require('fs');
+            const env = '${{ matrix.env }}';
+            const path = `terraform/environments/${env}/plan.txt`;
+            let plan = fs.readFileSync(path, 'utf8');
+
+            // GitHub rejects comments over 65536 characters. Keep the tail,
+            // which is where the summary and the last resources live.
+            const LIMIT = 60000;
+            if (plan.length > LIMIT) {
+              plan = '...(truncated - see the workflow log for the full plan)...\n'
+                   + plan.slice(plan.length - LIMIT);
+            }
+
+            const body = [
+              `### \`${env}\` - ${process.env.SUMMARY || 'plan complete'}`,
+              '',
+              '<details><summary>Show plan</summary>',
+              '',
+              '```terraform',
+              plan,
+              '```',
+              '',
+              '</details>',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });

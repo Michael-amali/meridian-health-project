@@ -47,9 +47,10 @@ module "iam_baseline" {
 module "batch_generators" {
   source = "../../modules/batch-generators"
 
-  env             = var.env
-  raw_bucket_name = module.s3_data_lake.bucket_names["raw"]
-  lambda_role_arn = module.iam_baseline.lambda_generator_role_arn
+  env               = var.env
+  raw_bucket_name   = module.s3_data_lake.bucket_names["raw"]
+  lambda_role_arn   = module.iam_baseline.lambda_generator_role_arn
+  schedules_enabled = var.batch_schedules_enabled
 }
 
 module "streaming_producer" {
@@ -59,6 +60,7 @@ module "streaming_producer" {
   vitals_stream_name        = module.kinesis_streaming.stream_names["vitals"]
   prescriptions_stream_name = module.kinesis_streaming.stream_names["prescriptions"]
   lambda_role_arn           = module.iam_baseline.lambda_generator_role_arn
+  schedule_enabled          = var.streaming_enabled
 }
 
 module "streaming_alerts" {
@@ -68,6 +70,7 @@ module "streaming_alerts" {
   vitals_stream_arn = module.kinesis_streaming.vitals_stream_arn
   alerts_table_name = module.dynamodb_alerts.table_name
   lambda_role_arn   = module.iam_baseline.lambda_alerting_role_arn
+  consumer_enabled  = var.streaming_enabled
 }
 
 # Phase 3: bronze -> silver. Crawls raw into the Glue Catalog, cleanses each
@@ -103,6 +106,10 @@ module "lake_formation_bootstrap" {
   env                = var.env
   curated_bucket_arn = module.s3_data_lake.bucket_arns["curated"]
   kms_key_arn        = module.kms.key_arn
+
+  # Account-wide singleton - only one environment may own it. See this
+  # variable's description in variables.tf before changing it anywhere.
+  manage_account_settings = var.manage_lake_formation_account_settings
 }
 
 module "silver_to_gold" {
@@ -171,6 +178,7 @@ module "redshift_warehouse" {
   curated_bucket_name = module.s3_data_lake.bucket_names["curated"]
   curated_bucket_arn  = module.s3_data_lake.bucket_arns["curated"]
   kms_key_arn         = module.kms.key_arn
+  base_capacity       = var.redshift_base_capacity
 
   depends_on = [module.silver_to_gold]
 }
@@ -202,6 +210,7 @@ module "batch_daily_pipeline" {
   # src/glue_jobs/bronze_to_silver/common.py), so this always has a full,
   # fully-landed day of data to work with regardless of exactly when it runs.
   schedule_expression = "cron(0 8 * * ? *)"
+  schedule_enabled    = var.batch_schedules_enabled
 
   # Phase 6: keep these 7 curated tables fresh in Redshift right after
   # they're curated, instead of only loading them once at `terraform apply`
@@ -236,6 +245,7 @@ module "streaming_curation_pipeline" {
   sns_topic_arn       = module.sns_alerts.topic_arn
   kms_key_arn         = module.kms.key_arn
   schedule_expression = "rate(30 minutes)"
+  schedule_enabled    = var.streaming_enabled
 
   # Phase 6: this pipeline only curates fact_vitals_alert, so it only loads
   # that one table.
@@ -269,6 +279,7 @@ module "quicksight_bi" {
   env                        = var.env
   quicksight_admin_user_name = var.quicksight_admin_user_name
   facility_access            = var.quicksight_facility_access
+  refresh_schedules_enabled  = var.quicksight_refresh_schedules_enabled
 
   redshift_workgroup_name    = module.redshift_warehouse.workgroup_name
   redshift_database_name     = module.redshift_warehouse.database_name
@@ -278,4 +289,13 @@ module "quicksight_bi" {
   redshift_vpc_id            = module.redshift_warehouse.vpc_id
   redshift_subnet_ids        = module.redshift_warehouse.subnet_ids
   redshift_security_group_id = module.redshift_warehouse.security_group_id
+
+  # The variables above only need the workgroup to exist, but this module's
+  # setup SQL runs GRANT SELECT against the star-schema TABLES, which are
+  # created by aws_redshiftdata_statement resources inside redshift_warehouse.
+  # Without this, Terraform is free to run the grants first and they fail with
+  # `relation "dim_facility" does not exist`. dev never hit this because its
+  # tables were already there from Phase 6 by the time Phase 7 was written -
+  # standing up test from nothing in Phase 8 is what exposed it.
+  depends_on = [module.redshift_warehouse]
 }

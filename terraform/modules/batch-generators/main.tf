@@ -44,6 +44,7 @@ resource "aws_cloudwatch_event_rule" "schedule" {
 
   name                = "meridian-gen-${each.key}-schedule-${var.env}"
   schedule_expression = each.value.schedule
+  state               = var.schedules_enabled ? "ENABLED" : "DISABLED"
 
   tags = var.tags
 }

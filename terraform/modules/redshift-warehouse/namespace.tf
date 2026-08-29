@@ -71,7 +71,7 @@ resource "aws_redshiftserverless_workgroup" "this" {
   namespace_name = aws_redshiftserverless_namespace.this.namespace_name
   workgroup_name = "meridian-${var.env}"
 
-  base_capacity       = 8 # smallest RPU increment - capstone-scale data volumes
+  base_capacity       = var.base_capacity
   publicly_accessible = false
   subnet_ids          = aws_subnet.redshift[*].id
   security_group_ids  = [aws_security_group.redshift.id]

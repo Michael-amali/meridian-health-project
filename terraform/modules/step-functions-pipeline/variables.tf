@@ -39,6 +39,12 @@ variable "schedule_expression" {
   type        = string
 }
 
+variable "schedule_enabled" {
+  description = "Whether the EventBridge rule that starts this pipeline is ENABLED. Set false in an environment where the pipeline should exist and be startable by hand, but not run itself on a timer (test/prod) - every unattended run wakes Glue and Redshift and bills for it."
+  type        = bool
+  default     = true
+}
+
 variable "redshift_tables_to_load" {
   description = "Curated tables this pipeline should TRUNCATE + COPY into Redshift after curation (see modules/redshift-warehouse for the table definitions). Empty list skips this stage entirely - the other redshift_* variables are only required when this is non-empty."
   type        = list(string)

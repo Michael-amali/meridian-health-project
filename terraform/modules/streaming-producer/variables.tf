@@ -18,6 +18,12 @@ variable "lambda_role_arn" {
   type        = string
 }
 
+variable "schedule_enabled" {
+  description = "Whether the EventBridge rule that invokes the producer is ENABLED. Set false in an environment that should exist but not produce synthetic events on its own (test/prod) - the Lambda is still created and can be invoked by hand."
+  type        = bool
+  default     = true
+}
+
 variable "tags" {
   description = "Tags to apply to created resources."
   type        = map(string)

@@ -100,7 +100,7 @@ resource "aws_redshiftdata_statement" "rls_setup" {
   # statement on a later sql change would fail with "already exists" rather
   # than reconciling anything.
   lifecycle {
-    ignore_changes = [sql]
+    ignore_changes = all
   }
 }
 
@@ -152,7 +152,7 @@ resource "aws_redshiftdata_statement" "demo_facility_users" {
   # (CREATE USER ... PASSWORD '...' included), producing the same permanent
   # phantom diff. This resource's only job is the one-time user setup.
   lifecycle {
-    ignore_changes = [sql]
+    ignore_changes = all
   }
 }
 

@@ -13,6 +13,12 @@ variable "kms_key_arn" {
   type        = string
 }
 
+variable "manage_account_settings" {
+  description = "Whether THIS environment owns the account-wide aws_lakeformation_data_lake_settings object. There is only one per AWS account, so exactly one environment may set this true (dev does) - see the long comment above that resource in main.tf for why a second owner is actively harmful."
+  type        = bool
+  default     = true
+}
+
 variable "tags" {
   description = "Tags to apply to created resources."
   type        = map(string)

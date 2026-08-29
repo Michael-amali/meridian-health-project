@@ -94,6 +94,46 @@ resource "aws_iam_role_policy" "plan_state_read" {
           "arn:aws:s3:::meridian-terraform-state-myk",
           "arn:aws:s3:::meridian-terraform-state-myk/*",
         ]
+      },
+      # The three gaps in AWS's ReadOnlyAccess that `terraform plan` needs.
+      # Each one is genuinely read-only; they are simply not in that managed
+      # policy (checked against its actual policy document, not assumed).
+      {
+        # Refreshing an aws_redshiftdata_statement calls DescribeStatement.
+        # The lifecycle{ignore_changes} on those resources does not help - it
+        # controls the diff, not whether Terraform reads the resource at all.
+        # No resource-level permissions exist for this action.
+        Sid      = "DescribeRedshiftDataStatements"
+        Effect   = "Allow"
+        Action   = ["redshift-data:DescribeStatement"]
+        Resource = "*"
+      },
+      {
+        # QuickSight's Describe*/List* are absent from ReadOnlyAccess, so the
+        # 6 datasets, 2 dashboards, data source and VPC connection cannot be
+        # refreshed without this. Read-only by definition - nothing here can
+        # create, update or delete.
+        Sid      = "DescribeQuickSightAssets"
+        Effect   = "Allow"
+        Action   = ["quicksight:Describe*", "quicksight:List*"]
+        Resource = "*"
+      },
+      {
+        # Refreshing aws_secretsmanager_secret_version requires reading the
+        # secret's VALUE - DescribeSecret (which ReadOnlyAccess does grant) only
+        # returns metadata.
+        #
+        # Scoped to this project's secrets rather than "*", because this role is
+        # reachable from any pull request. The values behind it are the demo
+        # facility-manager passwords for a warehouse holding entirely synthetic
+        # data, and Terraform renders them as "(sensitive value)", so they do
+        # not reach the PR comment. Even so, keep the scope narrow: widening
+        # this to "*" would make every secret in the account readable from a
+        # pull-request workflow.
+        Sid      = "ReadProjectSecretValues"
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = "arn:aws:secretsmanager:*:${data.aws_caller_identity.current.account_id}:secret:meridian-*"
       }
     ]
   })

@@ -40,3 +40,9 @@ data/local/
 *.key
 .env
 .env.*
+
+# Phase 8: local Terraform/CI working files
+*.log
+plan.txt
+tfplan.binary
+bootstrap-targets.txt

@@ -5,6 +5,7 @@
 resource "aws_cloudwatch_event_rule" "schedule" {
   name                = "meridian-streaming-producer-schedule-${var.env}"
   schedule_expression = "rate(5 hours)" # previously  rate(1 minute), adjusted for testing purposes
+  state               = var.schedule_enabled ? "ENABLED" : "DISABLED"
 
   tags = var.tags
 }

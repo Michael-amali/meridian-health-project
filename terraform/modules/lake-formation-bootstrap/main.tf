@@ -40,8 +40,59 @@ data "aws_iam_session_context" "current" {
 # omitting them (rather than assigning `= []`) is what tells the provider
 # "zero default-permission entries", i.e. no automatic IAMAllowedPrincipals
 # grant for anything created after this applies.
+#
+# Phase 8: this is the ONE resource in this module that is account-wide, not
+# per-environment - there is a single Lake Formation settings object for the
+# whole AWS account, so dev/test/prod would all be writing to the same thing.
+# Exactly one environment may own it (var.manage_account_settings = true, which
+# is dev - see terraform/environments/*/terraform.tfvars). Two reasons this
+# matters, both of which bite silently rather than erroring:
+#   1. `terraform destroy` on a non-owning environment would DELETE the shared
+#      settings, restoring the account-wide IAMAllowedPrincipals default grant
+#      and quietly defeating dev's column-level masking.
+#   2. `admins` is a whole-list replacement, so whichever environment applied
+#      last would win, and the others would show permanent drift.
+# test/prod still get everything else in this module (their own data-access
+# role, their own curated location registration) - only this shared object is
+# skipped, and they inherit its effect because it is account-wide anyway.
+#
+# Adding `count` renames this from `.this` to `.this[0]`; the moved block says
+# that is a rename, so dev's already-applied settings are not destroyed and
+# recreated (which would briefly restore the default grant it exists to remove).
+moved {
+  from = aws_lakeformation_data_lake_settings.this
+  to   = aws_lakeformation_data_lake_settings.this[0]
+}
+
 resource "aws_lakeformation_data_lake_settings" "this" {
-  admins = [data.aws_iam_session_context.current.issuer_arn]
+  count = var.manage_account_settings ? 1 : 0
+
+  # The CI roles are admins alongside the human who applies locally.
+  #
+  # Without this, `terraform plan` from GitHub Actions fails on any database
+  # created after these settings first landed - GetDatabase returns
+  # "Insufficient Lake Formation permission(s): Required Describe on
+  # meridian_curated_<env>". IAM read access is not enough on its own: for a
+  # governed catalog resource, IAM and Lake Formation must BOTH allow the call.
+  # (dev's raw/cleansed databases are the exception - they were created in
+  # Phase 3, before these settings existed, so they kept the legacy
+  # IAMAllowedPrincipals grant and are reachable on plain IAM. Every database
+  # created since, in any environment, is not.)
+  #
+  # Admin is also what the apply roles genuinely need: a principal cannot grant
+  # a Lake Formation permission it does not itself hold with grant option, and
+  # modules/lake-formation-grants grants permissions to other principals.
+  #
+  # Making the PLAN role an admin does not make it dangerous, and this is the
+  # part worth understanding: Lake Formation admin status is not an IAM policy.
+  # Every mutating call still has to pass IAM first, and that role holds only
+  # ReadOnlyAccess, which contains no lakeformation:GrantPermissions,
+  # PutDataLakeSettings or RegisterResource. The two systems are ANDed, so
+  # read-only in IAM stays read-only no matter what Lake Formation thinks.
+  admins = concat(
+    [data.aws_iam_session_context.current.issuer_arn],
+    [for name in var.ci_role_names : "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${name}"],
+  )
 }
 
 # --- Curated location registration ---

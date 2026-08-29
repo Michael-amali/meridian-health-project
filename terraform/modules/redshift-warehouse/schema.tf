@@ -167,6 +167,31 @@ locals {
   }
 }
 
+# Phase 8: every aws_redshiftdata_statement in this module is a FIRE-ONCE
+# resource - its entire job is to run some SQL at creation time. None of them
+# should ever re-run, and each carries `lifecycle { ignore_changes = all }` to
+# guarantee that.
+#
+# `all` rather than `[sql]` (which is what these originally had) because of how
+# the Redshift Data API behaves over time: it only keeps statement history for
+# about 24 hours. Once a statement ages out, the provider's refresh can no
+# longer read it back and blanks `workgroup_name`, `secret_arn` and `sql` in
+# state. Terraform then sees those as null -> value changes, all three of which
+# force replacement, and plans to destroy and re-create all 30 statements. That
+# is not cosmetic: re-running rls_setup or demo_facility_users FAILS outright,
+# because CREATE ROLE / CREATE RLS POLICY / CREATE USER have no "IF NOT EXISTS"
+# form, so the apply dies partway through. Ignoring [sql] alone did not prevent
+# this - workgroup_name and secret_arn force replacement on their own.
+#
+# The trade-off, stated plainly: editing the SQL in this file will NOT change
+# an environment that has already been applied. Changing the star schema means
+# doing it deliberately against the warehouse (ALTER/DROP, or tear the
+# environment down and re-apply), not by editing a string here and expecting
+# Terraform to reconcile it. That was already true before this change - a
+# CREATE TABLE IF NOT EXISTS against an existing table is a no-op - so nothing
+# real is lost; the lifecycle block just stops Terraform from pretending
+# otherwise.
+
 resource "aws_redshiftdata_statement" "create_table" {
   for_each = local.table_columns
 
@@ -175,6 +200,12 @@ resource "aws_redshiftdata_statement" "create_table" {
   secret_arn     = aws_redshiftserverless_namespace.this.admin_password_secret_arn
 
   sql = "CREATE TABLE IF NOT EXISTS ${each.key} (${each.value}) ${local.table_dist_sort[each.key]};"
+
+  # Run once, then never touch again - see the "fire-once statements" comment
+  # at the top of this file for why this has to be `all` and not just [sql].
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 # Initial load only - keeping this table's data fresh day to day is Phase 5's
@@ -213,6 +244,6 @@ resource "aws_redshiftdata_statement" "initial_load" {
   # genuine schema/table change is picked up by the Step Functions pipeline's
   # own ongoing TRUNCATE + COPY, not by re-running this resource.
   lifecycle {
-    ignore_changes = [sql]
+    ignore_changes = all
   }
 }

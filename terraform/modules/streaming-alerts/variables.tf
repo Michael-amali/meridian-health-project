@@ -18,6 +18,12 @@ variable "lambda_role_arn" {
   type        = string
 }
 
+variable "consumer_enabled" {
+  description = "Whether the Lambda polls the vitals stream. Set false in an environment with no producer running (test/prod) - an enabled consumer polls the stream around the clock and bills for it even when no events ever arrive."
+  type        = bool
+  default     = true
+}
+
 variable "tags" {
   description = "Tags to apply to created resources."
   type        = map(string)

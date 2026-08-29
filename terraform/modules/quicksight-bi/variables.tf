@@ -65,6 +65,12 @@ variable "facility_access" {
   type        = map(string)
 }
 
+variable "refresh_schedules_enabled" {
+  description = "Whether the SPICE refresh schedules are created. Set false in an environment whose pipelines are also switched off (test/prod) - a refresh there would wake Redshift and bill RPU seconds to reload data that never changed. The datasets still exist and can be refreshed on demand with `aws quicksight create-ingestion`."
+  type        = bool
+  default     = true
+}
+
 variable "tags" {
   description = "Tags to apply to created resources."
   type        = map(string)

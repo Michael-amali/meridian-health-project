@@ -114,9 +114,9 @@ flowchart TD
     P2["2. Ingestion\nBatch generators + Kinesis streaming + alerting\n**DONE**"]
     P3["3. Bronze -> Silver\nCrawlers, cleansing jobs, Data Quality gate\n**DONE**"]
     P4["4. Silver -> Gold\nDimensional model, Lake Formation governance\n**DONE**"]
-    P5["5. Orchestration\nStep Functions, EventBridge, CloudWatch/SNS"]
-    P6["6. Warehouse\nRedshift Serverless, star schema, RLS"]
-    P7["7. BI Dashboards\nQuickSight Executive + Operational/Clinical"]
+    P5["5. Orchestration\nStep Functions, EventBridge, CloudWatch/SNS\n**DONE**"]
+    P6["6. Warehouse\nRedshift Serverless, star schema, RLS\n**DONE**"]
+    P7["7. BI Dashboards\nQuickSight Executive + Operational/Clinical\n**DONE**"]
     P8["8. Promotion & CI/CD\ndev -> test -> prod via GitHub Actions"]
     P9["9. Documentation\nArchitecture, data model, governance, runbook"]
 

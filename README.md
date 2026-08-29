@@ -43,6 +43,43 @@ visible. **Note:** this phase changed an account-wide Lake Formation setting
 - any new Glue database created anywhere in this account from now on needs explicit
 Lake Formation grants; it no longer gets implicit IAM-passthrough access.
 
+**Phase 5 (Orchestration) - complete.** Two Step Functions state machines built from
+one reusable module tie the pipeline together: `batch-daily` (5 cleanse jobs -> 7 curate
+jobs -> Redshift load -> SNS) on an 08:00 UTC EventBridge schedule, and
+`streaming-curation` (vitals/prescriptions) every 30 minutes. Retry/catch on every Glue
+step, an SNS alerts topic, 3 CloudWatch alarms (pipeline failure, Kinesis iterator age,
+DQ quarantine volume) and a pipeline dashboard. Verified by killing a Glue job mid-run
+and confirming Step Functions retried and recovered with no manual intervention.
+
+**Phase 6 (Warehouse) - complete.** A Redshift Serverless namespace/workgroup in its own
+private VPC (3 AZs, no NAT - an S3 gateway endpoint covers COPY), the 13-table star
+schema with deliberate dist/sort keys, and facility-scoped native row-level security
+with a demo database user per facility. Both Phase 5 pipelines gained a Redshift load
+stage, so the warehouse stays current. Verified with real per-facility queries proving
+RLS filters rather than merely existing, and by re-running the pipeline to confirm
+TRUNCATE + COPY never double-counts.
+
+**Phase 7 (BI dashboards) - complete.** QuickSight reaches the private Redshift
+workgroup over a VPC connection, connecting as a dedicated read-only database user
+rather than the admin. Six SPICE datasets (custom SQL over the star schema) feed an
+**Executive** dashboard - visits, length of stay, 30-day readmission rate, claim value
+and denial rate by payer, bed occupancy trend, staffing ratio - and an
+**Operational & Clinical** dashboard - occupancy and capacity risk by department, staff
+by shift, stockout worklist, critical vitals alerts per hour, and a facility drop-down
+that moves every visual at once. Per-viewer facility scoping is enforced by QuickSight's
+own row-level security, driven by a `quicksight_user_facility_map` table in Redshift:
+the dashboards share one database connection, so Phase 6's native Redshift RLS cannot
+tell one viewer from another. Set a user's `facility_id` to `null` in
+`var.quicksight_facility_access` for the unrestricted executive view.
+
+**Bug found and fixed during Phase 7 verification:** the streaming producer was sending
+Kinesis records with no trailing newline. Firehose concatenates record payloads verbatim,
+so every delivered S3 object was one long `}{`-joined line, and both Spark and Athena
+silently kept only the first event per object - roughly 90% of all vitals and
+prescription events had been discarded since Phase 2, with no error anywhere. Fixed in
+`src/generators/streaming/producer.py`; re-verified end to end (34 events in one object
+instead of 1, and real critical-vitals alerts now reaching `fact_vitals_alert`).
+
 All of the above is live in `dev` only - `test`/`prod` have the same Terraform but are
 not yet applied (Phase 8).
 

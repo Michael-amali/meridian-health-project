@@ -260,3 +260,22 @@ module "monitoring" {
   }
   kinesis_stream_names = module.kinesis_streaming.stream_names
 }
+
+# Phase 7 (BI dashboards): QuickSight datasets and the two dashboards the RFP
+# asks for, reading the Phase 6 warehouse over a private VPC connection.
+module "quicksight_bi" {
+  source = "../../modules/quicksight-bi"
+
+  env                        = var.env
+  quicksight_admin_user_name = var.quicksight_admin_user_name
+  facility_access            = var.quicksight_facility_access
+
+  redshift_workgroup_name    = module.redshift_warehouse.workgroup_name
+  redshift_database_name     = module.redshift_warehouse.database_name
+  redshift_admin_secret_arn  = module.redshift_warehouse.admin_secret_arn
+  redshift_endpoint_address  = module.redshift_warehouse.endpoint_address
+  redshift_endpoint_port     = module.redshift_warehouse.endpoint_port
+  redshift_vpc_id            = module.redshift_warehouse.vpc_id
+  redshift_subnet_ids        = module.redshift_warehouse.subnet_ids
+  redshift_security_group_id = module.redshift_warehouse.security_group_id
+}

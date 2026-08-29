@@ -15,8 +15,18 @@ _kinesis = boto3.client("kinesis")
 
 
 def _put_records(stream_name: str, events: list):
+    # The trailing newline is not cosmetic. Kinesis Data Firehose concatenates
+    # record payloads back to back with nothing between them, so without it
+    # every delivered S3 object is one long line of "}{"-joined JSON. Spark
+    # and Athena both read JSON a line at a time, so they would silently keep
+    # only the first event in each object and drop the rest - no error, just
+    # missing data. Adding the delimiter here costs nothing; the alternative
+    # is a Firehose transformation Lambda that does the same thing per record.
     records = [
-        {"Data": json.dumps(event).encode("utf-8"), "PartitionKey": event["patient_id"]}
+        {
+            "Data": (json.dumps(event) + "\n").encode("utf-8"),
+            "PartitionKey": event["patient_id"],
+        }
         for event in events
     ]
     response = _kinesis.put_records(StreamName=stream_name, Records=records)

@@ -147,3 +147,18 @@ output "facility_manager_demo_secret_arns" {
   description = "Map of facility (FAC01/FAC02/FAC03) to the Secrets Manager ARN holding its demo db_user's password - only the matching facility_manager_demo_role_arns role can read it."
   value       = module.redshift_warehouse.demo_facility_user_secret_arns
 }
+
+output "executive_dashboard_url" {
+  description = "Console URL for the Phase 7 Executive dashboard."
+  value       = module.quicksight_bi.executive_dashboard_url
+}
+
+output "operational_dashboard_url" {
+  description = "Console URL for the Phase 7 Operational & Clinical dashboard."
+  value       = module.quicksight_bi.operational_dashboard_url
+}
+
+output "quicksight_data_set_ids" {
+  description = "Map of dashboard dataset key to QuickSight data set ID - use with `aws quicksight create-ingestion` to force a SPICE refresh outside the schedule."
+  value       = module.quicksight_bi.data_set_ids
+}

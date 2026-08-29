@@ -67,7 +67,32 @@ moved {
 resource "aws_lakeformation_data_lake_settings" "this" {
   count = var.manage_account_settings ? 1 : 0
 
-  admins = [data.aws_iam_session_context.current.issuer_arn]
+  # The CI roles are admins alongside the human who applies locally.
+  #
+  # Without this, `terraform plan` from GitHub Actions fails on any database
+  # created after these settings first landed - GetDatabase returns
+  # "Insufficient Lake Formation permission(s): Required Describe on
+  # meridian_curated_<env>". IAM read access is not enough on its own: for a
+  # governed catalog resource, IAM and Lake Formation must BOTH allow the call.
+  # (dev's raw/cleansed databases are the exception - they were created in
+  # Phase 3, before these settings existed, so they kept the legacy
+  # IAMAllowedPrincipals grant and are reachable on plain IAM. Every database
+  # created since, in any environment, is not.)
+  #
+  # Admin is also what the apply roles genuinely need: a principal cannot grant
+  # a Lake Formation permission it does not itself hold with grant option, and
+  # modules/lake-formation-grants grants permissions to other principals.
+  #
+  # Making the PLAN role an admin does not make it dangerous, and this is the
+  # part worth understanding: Lake Formation admin status is not an IAM policy.
+  # Every mutating call still has to pass IAM first, and that role holds only
+  # ReadOnlyAccess, which contains no lakeformation:GrantPermissions,
+  # PutDataLakeSettings or RegisterResource. The two systems are ANDed, so
+  # read-only in IAM stays read-only no matter what Lake Formation thinks.
+  admins = concat(
+    [data.aws_iam_session_context.current.issuer_arn],
+    [for name in var.ci_role_names : "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${name}"],
+  )
 }
 
 # --- Curated location registration ---

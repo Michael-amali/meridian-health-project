@@ -9,12 +9,25 @@
 # to read S3 for COPY - the S3 gateway endpoint below covers that for free,
 # without a NAT gateway.
 
-data "aws_availability_zones" "available" {
-  state = "available"
-}
-
+# The availability zones are written out, NOT looked up with a
+# data "aws_availability_zones" block, and that is deliberate - it is a
+# correctness fix, not a style preference.
+#
+# This module carries a module-level `depends_on` (see the environment's
+# main.tf). Terraform defers every data source inside a module with
+# depends_on until apply time whenever anything upstream has a pending
+# change. A deferred lookup is UNKNOWN at plan time, so
+# `availability_zone` reads as "(known after apply)" - and because that
+# attribute forces replacement, Terraform plans to DESTROY AND RECREATE
+# all three subnets, taking the Redshift workgroup with them. An unrelated
+# edit far upstream (adding a Lake Formation admin, in the case that
+# surfaced this) is enough to trigger it.
+#
+# Hard-coded zone names cannot become unknown, so the hazard disappears.
+# The cost is that these are us-east-1 specific, which is fine: the CIDRs
+# below are equally fixed, and this project is single-region by design.
 locals {
-  subnet_azs   = slice(data.aws_availability_zones.available.names, 0, 3)
+  subnet_azs   = ["us-east-1a", "us-east-1b", "us-east-1c"]
   subnet_cidrs = ["10.20.0.0/20", "10.20.16.0/20", "10.20.32.0/20"]
 }
 

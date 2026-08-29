@@ -24,3 +24,19 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "ci_role_names" {
+  description = <<-DESC
+    IAM role names (from terraform/github-oidc) that GitHub Actions uses, to be
+    registered as Lake Formation administrators alongside whoever applies
+    locally. Only meaningful in the environment that owns the account-wide
+    settings - see manage_account_settings.
+  DESC
+  type        = list(string)
+  default = [
+    "meridian-github-plan",
+    "meridian-github-apply-dev",
+    "meridian-github-apply-test",
+    "meridian-github-apply-prod",
+  ]
+}

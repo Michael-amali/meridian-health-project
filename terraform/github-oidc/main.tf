@@ -9,6 +9,14 @@ data "aws_caller_identity" "current" {}
 
 locals {
   github_repo_path = "${var.github_owner}/${var.github_repo}"
+
+  # Both subject shapes GitHub may mint - see github_owner_id in variables.tf.
+  # IAM treats a list of condition values as OR, so listing both means either
+  # is accepted and neither is wildcarded loosely enough to match another repo.
+  github_repo_paths = [
+    local.github_repo_path,
+    "${var.github_owner}@${var.github_owner_id}/${var.github_repo}@${var.github_repo_id}",
+  ]
 }
 
 # --- Trust the GitHub OIDC issuer -----------------------------------------
@@ -52,7 +60,9 @@ resource "aws_iam_role" "plan" {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
           }
           StringLike = {
-            "token.actions.githubusercontent.com:sub" = "repo:${local.github_repo_path}:*"
+            "token.actions.githubusercontent.com:sub" = [
+              for path in local.github_repo_paths : "repo:${path}:*"
+            ]
           }
         }
       }
@@ -120,7 +130,9 @@ resource "aws_iam_role" "apply" {
         Condition = {
           StringEquals = {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-            "token.actions.githubusercontent.com:sub" = "repo:${local.github_repo_path}:environment:${each.key}"
+            "token.actions.githubusercontent.com:sub" = [
+              for path in local.github_repo_paths : "repo:${path}:environment:${each.key}"
+            ]
           }
         }
       }

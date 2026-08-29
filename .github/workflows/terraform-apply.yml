@@ -104,6 +104,18 @@ jobs:
     runs-on: ubuntu-latest
     needs: test # prod is only reachable once test applied cleanly
     environment: prod # required reviewers configured here - this is the gate
+
+    # Opt-in, because a brand-new environment cannot be applied in one shot -
+    # Lake Formation's named-table grants need curated tables that only exist
+    # after data has flowed through and the crawler has run (see "Standing up a
+    # new environment from scratch" in the README). A plain apply against an
+    # unbootstrapped prod gets partway and then fails on the grants.
+    #
+    # So prod stays skipped until it has been bootstrapped by hand once. After
+    # that, set the repository variable PROD_ENABLED to the string "true" and
+    # this job joins the promotion chain permanently - ordinary changes from
+    # then on are a normal single apply.
+    if: vars.PROD_ENABLED == 'true'
     steps:
       - uses: actions/checkout@v4
 

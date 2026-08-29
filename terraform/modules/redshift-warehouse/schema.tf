@@ -193,7 +193,7 @@ locals {
 # otherwise.
 
 resource "aws_redshiftdata_statement" "create_table" {
-  for_each = local.table_columns
+  for_each = var.run_bootstrap_statements ? local.table_columns : {}
 
   workgroup_name = aws_redshiftserverless_workgroup.this.workgroup_name
   database       = aws_redshiftserverless_namespace.this.db_name
@@ -213,7 +213,7 @@ resource "aws_redshiftdata_statement" "create_table" {
 # wiring in modules/step-functions-pipeline and
 # terraform/environments/dev/main.tf), not this module.
 resource "aws_redshiftdata_statement" "initial_load" {
-  for_each = local.table_columns
+  for_each = var.run_bootstrap_statements ? local.table_columns : {}
 
   workgroup_name = aws_redshiftserverless_workgroup.this.workgroup_name
   database       = aws_redshiftserverless_namespace.this.db_name

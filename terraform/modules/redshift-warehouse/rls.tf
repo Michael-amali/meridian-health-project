@@ -85,6 +85,8 @@ locals {
 }
 
 resource "aws_redshiftdata_statement" "rls_setup" {
+  count = var.run_bootstrap_statements ? 1 : 0
+
   workgroup_name = aws_redshiftserverless_workgroup.this.workgroup_name
   database       = aws_redshiftserverless_namespace.this.db_name
   secret_arn     = aws_redshiftserverless_namespace.this.admin_password_secret_arn
@@ -133,7 +135,7 @@ resource "aws_secretsmanager_secret_version" "demo_facility_user" {
 }
 
 resource "aws_redshiftdata_statement" "demo_facility_users" {
-  for_each = local.demo_facilities
+  for_each = var.run_bootstrap_statements ? local.demo_facilities : {}
 
   workgroup_name = aws_redshiftserverless_workgroup.this.workgroup_name
   database       = aws_redshiftserverless_namespace.this.db_name

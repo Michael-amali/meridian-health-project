@@ -112,3 +112,22 @@ variable "manage_lake_formation_account_settings" {
   type        = bool
   default     = false
 }
+
+variable "run_warehouse_bootstrap" {
+  description = <<-DESC
+    Whether this apply manages the one-time Redshift bootstrap SQL (create the
+    star-schema tables, load them once, set up RLS, create the demo and reader
+    users).
+
+    Leave FALSE for any environment that already exists. Set it true only for
+    the single apply that stands a NEW environment up, then set it back.
+
+    Leaving it true is what caused `role "facility_manager" already exists` to
+    fail every apply made more than a day after the previous one: the Redshift
+    Data API drops statements from its history after ~24 hours, Terraform then
+    reads them as gone and re-runs SQL that cannot run twice. See
+    run_bootstrap_statements in modules/redshift-warehouse for the detail.
+  DESC
+  type        = bool
+  default     = false
+}

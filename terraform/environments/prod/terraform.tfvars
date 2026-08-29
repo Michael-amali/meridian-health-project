@@ -30,3 +30,7 @@ redshift_base_capacity = 8
 
 # dev owns this. Leave it false. See variables.tf.
 manage_lake_formation_account_settings = false
+
+# One-time warehouse bootstrap SQL. See the variable description before
+# changing this - true only for the apply that creates a NEW environment.
+run_warehouse_bootstrap = false

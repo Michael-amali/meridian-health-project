@@ -180,6 +180,9 @@ module "redshift_warehouse" {
   kms_key_arn         = module.kms.key_arn
   base_capacity       = var.redshift_base_capacity
 
+  # One-time bootstrap SQL - off except when standing a new environment up.
+  run_bootstrap_statements = var.run_warehouse_bootstrap
+
   depends_on = [module.silver_to_gold]
 }
 
@@ -280,6 +283,7 @@ module "quicksight_bi" {
   quicksight_admin_user_name = var.quicksight_admin_user_name
   facility_access            = var.quicksight_facility_access
   refresh_schedules_enabled  = var.quicksight_refresh_schedules_enabled
+  run_bootstrap_statements   = var.run_warehouse_bootstrap
 
   redshift_workgroup_name    = module.redshift_warehouse.workgroup_name
   redshift_database_name     = module.redshift_warehouse.database_name

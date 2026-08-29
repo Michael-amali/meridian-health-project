@@ -31,3 +31,7 @@ redshift_base_capacity = 8
 # dev owns the account-wide Lake Formation settings. test and prod must leave
 # this false - see the variable's description in variables.tf.
 manage_lake_formation_account_settings = true
+
+# One-time warehouse bootstrap SQL. See the variable description before
+# changing this - true only for the apply that creates a NEW environment.
+run_warehouse_bootstrap = false

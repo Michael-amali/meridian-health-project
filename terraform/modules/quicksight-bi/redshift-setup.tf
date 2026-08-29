@@ -41,6 +41,8 @@ locals {
 }
 
 resource "aws_redshiftdata_statement" "reader_role" {
+  count = var.run_bootstrap_statements ? 1 : 0
+
   workgroup_name = var.redshift_workgroup_name
   database       = var.redshift_database_name
   secret_arn     = var.redshift_admin_secret_arn
@@ -83,6 +85,8 @@ resource "aws_secretsmanager_secret_version" "reader_user" {
 }
 
 resource "aws_redshiftdata_statement" "reader_user" {
+  count = var.run_bootstrap_statements ? 1 : 0
+
   workgroup_name = var.redshift_workgroup_name
   database       = var.redshift_database_name
   secret_arn     = var.redshift_admin_secret_arn

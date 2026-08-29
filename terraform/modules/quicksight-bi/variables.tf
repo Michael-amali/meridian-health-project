@@ -76,3 +76,22 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "run_bootstrap_statements" {
+  description = <<-DESC
+    Whether to manage the one-time Redshift setup SQL this module needs (create
+    the read-only reader role and the reader user it connects as).
+
+    Same reasoning and same default as run_bootstrap_statements in
+    modules/redshift-warehouse - see that variable for the full explanation of
+    why the Data API's 24-hour statement history makes these unsafe to leave
+    under routine management.
+
+    Note the facility access map is deliberately NOT gated by this: its SQL is
+    idempotent (CREATE TABLE IF NOT EXISTS, then DELETE and re-INSERT), and it
+    has to keep tracking the facility_access variable, so re-running it is both
+    safe and the point.
+  DESC
+  type        = bool
+  default     = false
+}

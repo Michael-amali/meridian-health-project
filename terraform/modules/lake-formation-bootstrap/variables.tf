@@ -40,3 +40,13 @@ variable "ci_role_names" {
     "meridian-github-apply-prod",
   ]
 }
+
+variable "human_admin_user_names" {
+  description = <<-DESC
+    IAM user names that must stay Lake Formation administrators no matter who
+    runs Terraform. Do not leave this empty: it is what stops a CI apply from
+    locking the humans out (see the admins argument in main.tf).
+  DESC
+  type        = list(string)
+  default     = ["Michael-Ach"]
+}

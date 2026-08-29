@@ -89,10 +89,24 @@ resource "aws_lakeformation_data_lake_settings" "this" {
   # ReadOnlyAccess, which contains no lakeformation:GrantPermissions,
   # PutDataLakeSettings or RegisterResource. The two systems are ANDed, so
   # read-only in IAM stays read-only no matter what Lake Formation thinks.
-  admins = concat(
+  # This list is REPLACED wholesale on every apply, so it must not depend only
+  # on who is running Terraform. An earlier version was
+  # `[issuer_arn] + ci_role_names`, which looked fine locally and was broken:
+  # applied from a laptop it produced [human, ci...], but applied from GitHub
+  # Actions the issuer IS one of the CI roles, so the human silently vanished
+  # from the list. The human then lost the ability to DESCRIBE any table a
+  # crawler had created, `terraform plan` reported those tables and their grants
+  # as gone, and the next apply tried to recreate all of it - none of which
+  # names the real problem anywhere in the output.
+  #
+  # Listing all three sources explicitly means every apply converges on the same
+  # set regardless of who runs it: the caller (so nobody can lock themselves
+  # out), the named humans, and the CI roles.
+  admins = distinct(concat(
     [data.aws_iam_session_context.current.issuer_arn],
+    [for name in var.human_admin_user_names : "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/${name}"],
     [for name in var.ci_role_names : "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${name}"],
-  )
+  ))
 }
 
 # --- Curated location registration ---
